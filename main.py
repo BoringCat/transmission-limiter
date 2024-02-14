@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-import re
 import sys
 import json
 import yaml
@@ -36,27 +35,44 @@ class Timer(Thread):
             self.function(*self.args, **self.kwargs)
             self.finished.wait(self.interval)
 
-def checkPeer(rds:redis.Redis, peer:dict, id:str, totalSize:int, time:int, zero_threshold:int = 2**16):
+def sortKey(key:str): return int(key.split('/', 2)[2])
+
+def checkPeer(
+        rds:redis.Redis, peer:dict, id:str, totalSize:int,
+        time:int, interval:int, ttl:int, threshold:dict[str, int | float]
+    ):
     willBlock = False
     try:
-        peerKeys = sorted(rds.scan_iter(f"{id}/{peer['address']}/*", count=128), key=lambda x:int(x.split('/',2)[2]))
-        peerStats = tuple(map(json.loads, filter(bool, rds.mget(peerKeys)))) + (peer, )
-        if len(peerStats) >= 11:
+        peerKeys = sorted(rds.scan_iter(f"{id}/{peer['address']}/*", count=256), key=sortKey)
+        peerStats = tuple(itertools.chain(map(json.loads, filter(bool, rds.mget(peerKeys))), (peer, )))
+        if len(peerStats) >= threshold['data']:
             progressDiff = peerStats[-1]['progress'] - peerStats[0]['progress']
             sizeDiff = progressDiff * totalSize
-            needRate = sizeDiff / len(peerStats) / 5
+            needRate = sizeDiff / len(peerStats) / interval
             avgRate = sum(map(lambda x:x['rateToPeer'], peerStats)) / len(peerStats)
-            if (needRate > 0 and avgRate*2 > needRate) or (progressDiff == 0 and avgRate > zero_threshold):
-                logging.info('封禁条件满足: (%f > 0 and %f > %f) or (%f == 0 and %f > %d)', needRate, avgRate*2, needRate, progressDiff, avgRate, zero_threshold)
+            # 进度速率大于0但平均速度大于进度 || 速率为0但速度大于阈值
+            if (needRate > 0 and avgRate*threshold['avg'] > needRate) or (progressDiff == 0 and avgRate > totalSize / 10000):
+                logging.debug(
+                    '封禁条件满足: (%f > 0 and %f > %f) or (%f == 0 and %f > %d)',
+                    needRate, avgRate*threshold['avg'], needRate, progressDiff, avgRate, totalSize / 10000
+                )
                 willBlock = True
     except json.JSONDecodeError:
         rds.delete(*peerKeys)
     except:
-        logging.warning(format_exc())
-    rds.set(f"{id}/{peer['address']}/{time}", json.dumps({'progress':peer['progress'],'rateToPeer':peer['rateToPeer']}), ex=602)
+        logging.debug(format_exc())
+    rds.set(
+        name  = f"{id}/{peer['address']}/{time}",
+        value = json.dumps({'progress':peer['progress'],'rateToPeer':peer['rateToPeer']}),
+        exat  = (time/1000)+ttl
+    )
     return willBlock
 
-def getBlockList(tr:Transmission, rds:redis.Redis, ttl:int = 1800, zero_threshold:int = 2**16):
+def getBlockList(
+        tr:Transmission, rds:redis.Redis, interval:int,
+        ttl:dict[str, int] = {'data':602,'blocklist':1800},
+        threshold:dict[str, int | float] = {'avg': 2.0,'data':3}
+    ):
     def torrentFilter(t:dict):
         if t['status'] not in [4,5,6]:
             return False
@@ -73,11 +89,11 @@ def getBlockList(tr:Transmission, rds:redis.Redis, ttl:int = 1800, zero_threshol
         torrents = tr.TorrentGet(['id', 'name', 'addedDate', 'sizeWhenDone', 'status', 'peers'])
         for torrent in filter(torrentFilter, torrents):
             for peer in filter(lambda x:x['isUploadingTo'] and x['address'] not in blocklist, torrent['peers']):
-                if checkPeer(rds, peer, torrent['id'], torrent['sizeWhenDone'], runId, zero_threshold):
+                if checkPeer(rds, peer, torrent['id'], torrent['sizeWhenDone'], runId, interval, ttl['data'], threshold):
                     logging.info('将封禁 %s(%s)', peer['address'], peer['clientName'])
                     willBlocks.add(peer['address'])
         if willBlocks:
-            rds.set(f'transmission::blocklist::{runId}', '\n'.join(willBlocks), ex = ttl)
+            rds.set(f'transmission::blocklist::{runId}', '\n'.join(willBlocks), ex = ttl['blocklist'])
             tr.BlocklistUpdate()
     return worker
 
@@ -86,12 +102,12 @@ def flushBlockList(tr:Transmission):
         tr.BlocklistUpdate()
     return worker
 
-def create_app(configFile:str):
+def create_app(configFile:str, debug:bool = False):
     logging.basicConfig(
         stream  = sys.stderr,
         format  = '[%(asctime)s.%(msecs)03d][%(name)s][%(funcName)s][%(levelname)s] %(message)s',
         datefmt = '%Y-%m-%d %H:%M:%S',
-        level   = logging.INFO,
+        level   = logging.NOTSET if debug else logging.INFO,
     )
     with open(configFile, 'r', encoding='UTF-8') as f:
         conf = yaml.safe_load(f)
@@ -99,17 +115,13 @@ def create_app(configFile:str):
     rds = redis.Redis(**conf['redis'], encoding='UTF-8', decode_responses=True)
     tr = Transmission(**conf['transmission'])
 
-    getTask   = Timer(conf['interval'], getBlockList(tr, rds, conf['ttl'], conf['zero_threshold']))
-    flushTask = Timer(conf.get('ttl', 1800), tr.BlocklistUpdate)
-    getTask.setDaemon(True)
-    getTask.setName('getBlockList')
-    flushTask.setDaemon(True)
-    flushTask.setName('flushBlockList')
+    getTask   = Timer(conf['interval']['fetch'], getBlockList(tr, rds, conf['interval']['fetch'], conf['ttl'], conf['threshold']), name='getBlockList', daemon=True)
+    flushTask = Timer(conf['interval']['reflush'], tr.BlocklistUpdate, name='flushBlockList', daemon=True)
 
     app = Flask('transmission-limiter')
     static_list = []
     for idx, b in enumerate(conf.get('static_blocklist', [])):
-        static_list.append(f'static{idx}:{b}')
+        static_list.append(f'static{idx:08d}:{b}')
 
     @app.route('/blocklist')
     def blocklist():
@@ -130,9 +142,9 @@ def create_app(configFile:str):
         except Exception as err:
             errs.append(f'Redis: {err}\n')
         if not getTask.is_alive():
-            errs.append('getTask Thread: Not Alive\n')
+            errs.append(f'Thread {getTask.name}: Not Alive\n')
         if not flushTask.is_alive():
-            errs.append('flushTask Thread: Not Alive\n')
+            errs.append(f'Thread {flushTask.name}: Not Alive\n')
         if errs:
             resp = make_response(''.join(errs), 500)
         else:
@@ -143,11 +155,12 @@ def create_app(configFile:str):
     def _http_err(e:HTTPException):
         return '{0.value} {0.phrase}\n'.format(HTTPStatus(e.code)), e.code
 
-    getTask.start()
-    flushTask.start()
+    if not debug:
+        getTask.start()
+        flushTask.start()
 
     return app
 
 if __name__ == '__main__':
-    app = create_app('./config.dev.yml')
+    app = create_app('./config.dev.yml', True)
     app.run()
