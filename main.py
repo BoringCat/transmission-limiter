@@ -64,7 +64,7 @@ def checkPeer(
     rds.set(
         name  = f"{id}/{peer['address']}/{time}",
         value = json.dumps({'progress':peer['progress'],'rateToPeer':peer['rateToPeer']}),
-        exat  = (time/1000)+ttl
+        exat  = int(time/1000)+ttl
     )
     return willBlock
 
