@@ -14,6 +14,7 @@ from threading import Event, Thread
 from flask import Flask, make_response
 from werkzeug.exceptions import HTTPException
 
+from blocker import Blocker
 import args
 
 class Timer(Thread):
@@ -37,7 +38,7 @@ class Timer(Thread):
             self.function(*self.args, **self.kwargs)
             self.finished.wait(self.interval)
 
-def sortKey(key:str): return int(key.split('/', 2)[2])
+def sortKey(key:str, split:str = '/'): return int(key.split(split, 2)[2])
 
 def checkPeer(
         rds:redis.Redis, peer:dict, id:str, totalSize:int,
@@ -72,10 +73,11 @@ def checkPeer(
     except: pass
     return willBlock
 
-def getBlockList(
+def getBlockFunc(
         tr:Transmission, rds:redis.Redis, interval:int,
         ttl:dict[str, int] = {'data':602,'blocklist':1800},
-        threshold:dict[str, int | float] = {'avg': 2.0,'data':3}
+        threshold:dict[str, int | float] = {'avg': 2.0,'data':3},
+        blocker:Blocker = Blocker({})
     ):
     def torrentFilter(t:dict):
         if t['status'] not in [4,5,6]:
@@ -91,7 +93,10 @@ def getBlockList(
         torrents = tr.TorrentGet(['id', 'sizeWhenDone', 'status', 'peers'])
         for torrent in filter(torrentFilter, torrents):
             for peer in filter(lambda x:x['isUploadingTo'] and x['address'] not in blocklist, torrent['peers']):
-                if checkPeer(rds, peer, torrent['id'], torrent['sizeWhenDone'], runId, interval, ttl['data'], threshold):
+                if blocker.doFilter(peer):
+                    logging.info('将封禁 %s(%s)', peer['address'], peer['clientName'])
+                    willBlocks.add(peer['address'])
+                elif checkPeer(rds, peer, torrent['id'], torrent['sizeWhenDone'], runId, interval, ttl['data'], threshold):
                     logging.info('将封禁 %s(%s)', peer['address'], peer['clientName'])
                     willBlocks.add(peer['address'])
         if willBlocks:
@@ -117,23 +122,29 @@ def create_app(configFile:str = args.CONFIG_FILE, debug:bool = False):
     rds = redis.Redis(**conf['redis'], encoding='UTF-8', decode_responses=True)
     tr = Transmission(**conf['transmission'])
 
-    getTask   = Timer(conf['interval']['fetch'], getBlockList(tr, rds, conf['interval']['fetch'], conf['ttl'], conf['threshold']), name='getBlockList', daemon=True)
+    blocker = Blocker(conf.get('static_block', None))
+
+    getTask = Timer(
+        conf['interval']['fetch'],
+        getBlockFunc(tr, rds, conf['interval']['fetch'], conf['ttl'], conf['threshold'], blocker),
+        name='makeBlockList',
+        daemon=True
+    )
     flushTask = Timer(conf['interval']['reflush'], tr.BlocklistUpdate, name='flushBlockList', daemon=True)
 
     app = Flask('transmission-limiter')
-    static_list = []
-    for idx, b in enumerate(conf.get('static_blocklist', [])):
-        static_list.append(f'static{idx:08d}:{b}')
-
     @app.route('/blocklist')
     def blocklist():
-        dymanic_list = set(itertools.chain.from_iterable(map(
-            lambda x:x.split('\n'),
-            rds.mget(rds.scan_iter('transmission::blocklist::*', count=128))
-        )))
+        keys         = tuple(rds.scan_iter('transmission::blocklist::*', count=128))
+        items        = filter(lambda x:bool(x[1]), zip(keys, rds.mget(keys)))
+        dymanic_list = []
+        for k, v in items:
+            runId = sortKey(k, '::')
+            for idx, ip in enumerate(v.split('\n')):
+                dymanic_list.append(f'dymanic-{runId}-{idx}:{ip}-{ip}')
         return '\n'.join(itertools.chain(
-            static_list,
-            map(lambda x:'dymanic{0:08d}:{1}-{1}'.format(*x), enumerate(dymanic_list))
+            map(lambda x:'static-{0:08d}:{1}-{1}'.format(*x), enumerate(blocker.iplist)),
+            dymanic_list
         )) + '\n'
 
     @app.route('/health')
