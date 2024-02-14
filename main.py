@@ -54,10 +54,10 @@ def checkPeer(
             needRate = sizeDiff / len(peerStats) / interval
             avgRate = sum(map(lambda x:x['rateToPeer'], peerStats)) / len(peerStats)
             # 进度速率大于0但平均速度大于进度 || 速率为0但速度大于阈值
-            if (needRate > 0 and avgRate*threshold['avg'] > needRate) or (progressDiff == 0 and avgRate > totalSize / 10000):
+            if (needRate > 0 and avgRate > needRate*threshold['avg']) or (progressDiff == 0 and avgRate > totalSize / 10000):
                 logging.debug(
                     '封禁条件满足: (%f > 0 and %f > %f) or (%f == 0 and %f > %d)',
-                    needRate, avgRate*threshold['avg'], needRate, progressDiff, avgRate, totalSize / 10000
+                    needRate, avgRate, needRate*threshold['avg'], progressDiff, avgRate, totalSize / 10000
                 )
                 willBlock = True
     except json.JSONDecodeError:
@@ -116,6 +116,7 @@ def create_app(configFile:str = args.CONFIG_FILE, debug:bool = False):
         datefmt = '%Y-%m-%d %H:%M:%S',
         level   = logging.NOTSET if debug else args.LOG_LEVEL,
     )
+    logging.getLogger('urllib3.connectionpool').setLevel(logging.WARNING)
     with open(configFile, 'r', encoding='UTF-8') as f:
         conf = yaml.safe_load(f)
 
