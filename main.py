@@ -14,6 +14,8 @@ from threading import Event, Thread
 from flask import Flask, make_response
 from werkzeug.exceptions import HTTPException
 
+import args
+
 class Timer(Thread):
     def __init__(self, interval, target=None, name=None,
                  args=(), kwargs=None, *, daemon=None):
@@ -61,11 +63,13 @@ def checkPeer(
         rds.delete(*peerKeys)
     except:
         logging.debug(format_exc())
-    rds.set(
-        name  = f"{id}/{peer['address']}/{time}",
-        value = json.dumps({'progress':peer['progress'],'rateToPeer':peer['rateToPeer']}),
-        exat  = int(time/1000)+ttl
-    )
+    try:
+        rds.set(
+            name  = f"{id}/{peer['address']}/{time}",
+            value = json.dumps({'progress':peer['progress'],'rateToPeer':peer['rateToPeer']}),
+            exat  = int(time/1000)+ttl
+        )
+    except: pass
     return willBlock
 
 def getBlockList(
@@ -77,8 +81,6 @@ def getBlockList(
         if t['status'] not in [4,5,6]:
             return False
         return True
-    def peerFilter(p:dict):
-        return p['isUploadingTo']
     def worker():
         blocklist = set(itertools.chain.from_iterable(map(
             lambda x:x.split('\n'),
@@ -86,7 +88,7 @@ def getBlockList(
         )))
         runId = int(datetime.now().timestamp() * 1000)
         willBlocks = set()
-        torrents = tr.TorrentGet(['id', 'name', 'addedDate', 'sizeWhenDone', 'status', 'peers'])
+        torrents = tr.TorrentGet(['id', 'sizeWhenDone', 'status', 'peers'])
         for torrent in filter(torrentFilter, torrents):
             for peer in filter(lambda x:x['isUploadingTo'] and x['address'] not in blocklist, torrent['peers']):
                 if checkPeer(rds, peer, torrent['id'], torrent['sizeWhenDone'], runId, interval, ttl['data'], threshold):
@@ -102,12 +104,12 @@ def flushBlockList(tr:Transmission):
         tr.BlocklistUpdate()
     return worker
 
-def create_app(configFile:str, debug:bool = False):
+def create_app(configFile:str = args.CONFIG_FILE, debug:bool = False):
     logging.basicConfig(
         stream  = sys.stderr,
         format  = '[%(asctime)s.%(msecs)03d][%(name)s][%(funcName)s][%(levelname)s] %(message)s',
         datefmt = '%Y-%m-%d %H:%M:%S',
-        level   = logging.NOTSET if debug else logging.INFO,
+        level   = logging.NOTSET if debug else args.LOG_LEVEL,
     )
     with open(configFile, 'r', encoding='UTF-8') as f:
         conf = yaml.safe_load(f)
