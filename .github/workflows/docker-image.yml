@@ -3,6 +3,9 @@ name: Deploy Images to GHCR
 on:
   push:
     branches: [ "main" ]
+    paths:
+    - '*.py'
+    - Dockerfile
 
 env:
   REGISTRY: ghcr.io
