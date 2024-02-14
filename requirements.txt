@@ -1,0 +1,6 @@
+requests
+redis[hiredis]
+pyyaml
+flask
+gevent>=1.4
+gunicorn

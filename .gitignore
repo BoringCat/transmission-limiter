@@ -1,0 +1,12 @@
+# IDE
+.vscode/
+
+# 虚拟环境
+.venv/
+
+# pyc文件
+__pycache__/
+*.pyc
+
+# 本地文件
+*.dev.*
