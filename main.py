@@ -11,11 +11,25 @@ from http import HTTPStatus
 from datetime import datetime
 from trans import Transmission
 from traceback import format_exc
-from threading import Timer as _Timer
+from threading import Event, Thread
 from flask import Flask, make_response
 from werkzeug.exceptions import HTTPException
 
-class Timer(_Timer):
+class Timer(Thread):
+    def __init__(self, interval, target=None, name=None,
+                 args=(), kwargs=None, *, daemon=None):
+        super().__init__(name=name, daemon=daemon)
+        self.name = name
+        self.interval = interval
+        self.function = target
+        self.args = args if args is not None else tuple()
+        self.kwargs = kwargs if kwargs is not None else dict()
+        self.finished = Event()
+
+    def cancel(self):
+        """Stop the timer if it hasn't finished yet."""
+        self.finished.set()
+
     def run(self):
         self.finished.wait(self.interval)
         while not self.finished.is_set():
