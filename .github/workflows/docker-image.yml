@@ -1,4 +1,4 @@
-name: Deploy Images to GHCR
+name: Deploy Docker Images
 
 on:
   workflow_dispatch:
