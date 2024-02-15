@@ -109,7 +109,7 @@ def flushBlockList(tr:Transmission):
         tr.BlocklistUpdate()
     return worker
 
-def create_app(configFile:str = args.CONFIG_FILE, debug:bool = False):
+def createApp(configFile:str = args.CONFIG_FILE, debug:bool = False):
     logging.basicConfig(
         stream  = sys.stderr,
         format  = '[%(asctime)s.%(msecs)03d][%(name)s][%(funcName)s][%(levelname)s] %(message)s',
@@ -123,7 +123,7 @@ def create_app(configFile:str = args.CONFIG_FILE, debug:bool = False):
     rds = redis.Redis(**conf['redis'], encoding='UTF-8', decode_responses=True)
     tr = Transmission(**conf['transmission'])
 
-    blocker = Blocker(conf.get('static_block', None))
+    blocker = Blocker(conf.get('staticBlock', None))
 
     getTask = Timer(
         conf['interval']['fetch'],
@@ -166,7 +166,7 @@ def create_app(configFile:str = args.CONFIG_FILE, debug:bool = False):
         return resp
 
     @app.errorhandler(HTTPException)
-    def _http_err(e:HTTPException):
+    def __httpErr(e:HTTPException):
         return '{0.value} {0.phrase}\n'.format(HTTPStatus(e.code)), e.code
 
     if not debug:
@@ -176,5 +176,5 @@ def create_app(configFile:str = args.CONFIG_FILE, debug:bool = False):
     return app
 
 if __name__ == '__main__':
-    app = create_app('./config.dev.yml', True)
+    app = createApp('./config.dev.yml', True)
     app.run()

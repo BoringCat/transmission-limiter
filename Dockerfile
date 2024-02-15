@@ -10,7 +10,7 @@ RUN --mount=type=cache,target=/root/.cache\
 
 FROM baseimg as production
 VOLUME [ "/app/config" ]
-ENTRYPOINT [ "gunicorn", "-k", "gevent", "main:create_app('/app/config/config.yml')" ]
+ENTRYPOINT [ "gunicorn", "-k", "gevent", "main:createApp" ]
 CMD [ "-b", "[::]:8000" ]
 EXPOSE 8000
 

@@ -37,14 +37,14 @@ class Transmission():
         else:
             raise Exception(f'GetSessionId Error: HTTP response {resp.reason}')
 
-    def build_req(self, method:str, **args):
+    def buildReq(self, method:str, **args):
         return {
             'arguments': args,
             'method': method,
             'tag': self.tag
         }
 
-    def do_req(self, req:dict):
+    def doReq(self, req:dict):
         resp = self.__session.post(self.__url, auth = self.__auth, headers = self.__headers, json = req)
         if resp.status_code == 409:
             session_id = resp.headers.get('X-Transmission-Session-Id', None)
@@ -59,10 +59,13 @@ class Transmission():
             raise Exception(data['result'])
         return data['arguments']
 
-    def TorrentGet(self, fields:_t.List[str]) -> _t.List[dict]:
-        req = self.build_req(method='torrent-get', fields=fields)
-        return self.do_req(req)['torrents']
+    def TorrentGet(self, fields:_t.List[str]) -> _t.Generator[dict[str, int|list[dict]], _t.Any, None]:
+        req = self.buildReq(method='torrent-get', fields=fields, format='table')
+        resp = self.doReq(req)['torrents']
+        key = resp[0]
+        for val in resp[1:]:
+            yield dict(zip(key, val))
 
     def BlocklistUpdate(self):
-        req = self.build_req('blocklist-update')
-        return self.do_req(req)
+        req = self.buildReq('blocklist-update')
+        return self.doReq(req)

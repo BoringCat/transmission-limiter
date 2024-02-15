@@ -43,7 +43,7 @@ threshold:
   data:           # 多少个数据之后进行计算
   avg:            # 允许达到平均速度的多少倍
 
-static_block:     # 静态规则列表
+staticBlock:     # 静态规则列表
   ip:
   - ${startIP}-${endIP}
   ${key}:         # 静态匹配列表
