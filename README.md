@@ -1,6 +1,8 @@
 ## Transmission 自动封禁脚本 <!-- omit in toc -->
 Automatic block script for [transmission](https://github.com/transmission/transmission)
 
+[![Deploy Docker Images](https://github.com/BoringCat/transmission-limiter/actions/workflows/docker-image.yml/badge.svg)](https://github.com/BoringCat/transmission-limiter/actions/workflows/docker-image.yml)
+
 - [工作方式](#工作方式)
   - [处理逻辑](#处理逻辑)
 - [配置文件](#配置文件)
