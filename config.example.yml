@@ -1,0 +1,27 @@
+redis:
+  host: redis
+  port: 6379
+  db: 0
+
+transmission:
+  baseUrl: transmission:9091
+
+interval:
+  fetch: 5
+  reflush: 300
+
+ttl:
+  data: 600
+  blocklist: 7200
+
+threshold:
+  data: 6
+  avg: 2
+
+staticBlock:
+  clientName:
+  - prefix: Xunlei 
+  - contains: anacrolix/torrent
+  - prefix: Taipei-Torrent 
+  - prefix: trafficConsume 
+
