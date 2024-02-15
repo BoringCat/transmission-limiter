@@ -161,6 +161,10 @@ def createApp(configFile:str = args.CONFIG_FILE, debug:bool = False):
             rds.ping()
         except Exception as err:
             errs.append(f'Redis: {err}\n')
+        try:
+            tr.SessionGet(fields=['version'])
+        except Exception as err:
+            errs.append(f'Transmission: {err}\n')
         if not getTask.is_alive():
             errs.append(f'Thread {getTask.name}: Not Alive\n')
         if not flushTask.is_alive():

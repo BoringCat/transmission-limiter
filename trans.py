@@ -67,5 +67,7 @@ class Transmission():
             yield dict(zip(key, val))
 
     def BlocklistUpdate(self):
-        req = self.buildReq('blocklist-update')
-        return self.doReq(req)
+        return self.doReq(self.buildReq('blocklist-update'))
+
+    def SessionGet(self, fields:_t.List[str]):
+        return self.doReq(self.buildReq('session-get', fields=fields))
