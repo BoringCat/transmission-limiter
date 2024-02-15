@@ -10,6 +10,7 @@ from http import HTTPStatus
 from datetime import datetime
 from trans import Transmission
 from traceback import format_exc
+from redis.client import Pipeline
 from threading import Event, Thread
 from flask import Flask, make_response
 from werkzeug.exceptions import HTTPException
@@ -41,34 +42,34 @@ class Timer(Thread):
 def sortKey(key:str, split:str = '/'): return int(key.split(split, 2)[2])
 
 def checkPeer(
-        rds:redis.Redis, peer:dict, id:str, totalSize:int,
+        rds:redis.Redis, pipe:Pipeline, peer:dict, torrent:dict[str, int|float],
         time:int, interval:int, ttl:int, threshold:dict[str, int | float]
     ):
     willBlock = False
     try:
-        peerKeys = sorted(rds.scan_iter(f"{id}/{peer['address']}/*", count=256), key=sortKey)
+        peerKeys = sorted(rds.scan_iter(f"{torrent['id']}/{peer['address']}/*", count=256), key=sortKey)
         peerStats = tuple(itertools.chain(map(json.loads, filter(bool, rds.mget(peerKeys))), (peer, )))
         if len(peerStats) >= threshold['data']:
             progressDiff = peerStats[-1]['progress'] - peerStats[0]['progress']
-            sizeDiff = progressDiff * totalSize
+            sizeDiff = progressDiff * torrent['sizeWhenDone']
             needRate = sizeDiff / len(peerStats) / interval
             avgRate = sum(map(lambda x:x['rateToPeer'], peerStats)) / len(peerStats)
             # 进度速率大于0但平均速度大于进度 || 速率为0但速度大于阈值
-            if (needRate > 0 and avgRate > needRate*threshold['avg']) or (progressDiff == 0 and avgRate > totalSize / 10000):
+            if (needRate > 0 and avgRate > needRate*threshold['avg']) or (progressDiff == 0 and avgRate > torrent['sizeWhenDone'] / 10000 / interval):
                 logging.debug(
                     '封禁条件满足: (%f > 0 and %f > %f) or (%f == 0 and %f > %d)',
-                    needRate, avgRate, needRate*threshold['avg'], progressDiff, avgRate, totalSize / 10000
+                    needRate, avgRate, needRate*threshold['avg'], progressDiff, avgRate, torrent['sizeWhenDone'] / 10000 / interval
                 )
                 willBlock = True
     except json.JSONDecodeError:
-        rds.delete(*peerKeys)
+        pipe.delete(*peerKeys)
     except:
         logging.debug(format_exc())
     try:
-        rds.set(
-            name  = f"{id}/{peer['address']}/{time}",
+        pipe.set(
+            name  = f"{torrent['id']}/{peer['address']}/{time}",
             value = json.dumps({'progress':peer['progress'],'rateToPeer':peer['rateToPeer']}),
-            exat  = int(time/1000)+ttl
+            ex    = ttl
         )
     except: pass
     return willBlock
@@ -91,17 +92,22 @@ def getBlockFunc(
         runId = int(datetime.now().timestamp() * 1000)
         willBlocks = set()
         torrents = tr.TorrentGet(['id', 'sizeWhenDone', 'status', 'peers'])
+        pipe = rds.pipeline(False)
+        checkArgs = dict(rds=rds, pipe=pipe, time=runId, interval=interval, ttl=ttl['data'], threshold=threshold)
         for torrent in filter(torrentFilter, torrents):
-            for peer in filter(lambda x:x['isUploadingTo'] and x['address'] not in blocklist, torrent['peers']):
-                if blocker.doFilter(peer):
+            for peer in filter(lambda x:x['isUploadingTo'] and x['address'] not in blocklist, torrent.pop('peers',[])):
+                if blocker.doFilter(peer) or checkPeer(torrent=torrent, peer=peer, **checkArgs):
                     logging.info('将封禁 %s(%s)', peer['address'], peer['clientName'])
                     willBlocks.add(peer['address'])
-                elif checkPeer(rds, peer, torrent['id'], torrent['sizeWhenDone'], runId, interval, ttl['data'], threshold):
-                    logging.info('将封禁 %s(%s)', peer['address'], peer['clientName'])
-                    willBlocks.add(peer['address'])
-        if willBlocks:
-            rds.set(f'transmission::blocklist::{runId}', '\n'.join(willBlocks), ex = ttl['blocklist'])
-            tr.BlocklistUpdate()
+        try:
+            if willBlocks:
+                pipe.set(f'transmission::blocklist::{runId}', '\n'.join(willBlocks), ex = ttl['blocklist'])
+                pipe.execute()
+                tr.BlocklistUpdate()
+            else:
+                pipe.execute()
+        except:
+            logging.debug(format_exc())
     return worker
 
 def flushBlockList(tr:Transmission):

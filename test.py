@@ -33,23 +33,36 @@ class LimiterTest(unittest.TestCase):
                 {'lte':   19810},
             ]
         })
-        self.assertListEqual(['10.0.0.0-10.255.255.255'], list(b.iplist))
-        self.assertTrue(b.doFilter({ 'clientName': 'Xunlei (0.0.1.2)'}))
-        self.assertTrue(b.doFilter({ 'clientName': 'Taibei-Torrent dev'}))
-        self.assertTrue(b.doFilter({ 'clientName': 'trafficConsume (devel) (anacrolix/torrent v1.53.3)'}))
-        self.assertTrue(b.doFilter({ 'clientName': 'Free Download Manager 6'}))
-        self.assertFalse(b.doFilter({'clientName': 'qBittorrent 4.5.0'}))
-        self.assertFalse(b.doFilter({'clientName': 'Free Download Manager 5'}))
-        self.assertFalse(b.doFilter({'clientName': 'Transmission 4.0.4'}))
-        self.assertFalse(b.doFilter({'clientName': 'bitTorrent 7.10.5'}))
-        self.assertFalse(b.doFilter({'clientName': 'μTorrent 2.2.1'}))
-        self.assertFalse(b.doFilter({'clientName': 'BoringCat Torrent Dev'}))
-        self.assertTrue(b.doFilter({ 'port': 11451}))
-        self.assertTrue(b.doFilter({ 'port': 65535}))
-        self.assertTrue(b.doFilter({ 'port': 27017}))
-        self.assertTrue(b.doFilter({ 'port': 9527}))
-        self.assertTrue(b.doFilter({ 'port': 19810}))
-        self.assertFalse(b.doFilter({'port': 25316}))
+        with self.assertLogs('blocker', 'DEBUG') as cm:
+            self.assertListEqual(['10.0.0.0-10.255.255.255'], list(b.iplist))
+            self.assertTrue(b.doFilter({ 'clientName': 'Xunlei (0.0.1.2)'}))
+            self.assertTrue(b.doFilter({ 'clientName': 'Taibei-Torrent dev'}))
+            self.assertTrue(b.doFilter({ 'clientName': 'trafficConsume (devel) (anacrolix/torrent v1.53.3)'}))
+            self.assertTrue(b.doFilter({ 'clientName': 'Free Download Manager 6'}))
+            self.assertFalse(b.doFilter({'clientName': 'qBittorrent 4.5.0'}))
+            self.assertFalse(b.doFilter({'clientName': 'Free Download Manager 5'}))
+            self.assertFalse(b.doFilter({'clientName': 'Transmission 4.0.4'}))
+            self.assertFalse(b.doFilter({'clientName': 'bitTorrent 7.10.5'}))
+            self.assertFalse(b.doFilter({'clientName': 'μTorrent 2.2.1'}))
+            self.assertFalse(b.doFilter({'clientName': 'LibreTorrent 3.5.0'}))
+            self.assertFalse(b.doFilter({'clientName': 'BoringCat Torrent Dev'}))
+            self.assertTrue(b.doFilter({ 'port': 11451}))
+            self.assertTrue(b.doFilter({ 'port': 65535}))
+            self.assertTrue(b.doFilter({ 'port': 27017}))
+            self.assertTrue(b.doFilter({ 'port': 9527}))
+            self.assertTrue(b.doFilter({ 'port': 19810}))
+            self.assertFalse(b.doFilter({'port': 25316}))
+            self.assertEqual(cm.output, [
+                "DEBUG:blocker:封禁条件满足: Xunlei (0.0.1.2) => {'prefix': 'Xunlei '}",
+                "DEBUG:blocker:封禁条件满足: Taibei-Torrent dev => {'suffix': ' dev'}",
+                "DEBUG:blocker:封禁条件满足: trafficConsume (devel) (anacrolix/torrent v1.53.3) => {'contains': 'anacrolix/torrent'}",
+                "DEBUG:blocker:封禁条件满足: Free Download Manager 6 => {'equal': 'Free Download Manager 6'}",
+                "DEBUG:blocker:封禁条件满足: 11451 => {'equal': 11451}",
+                "DEBUG:blocker:封禁条件满足: 65535 => {'gt': 37017}",
+                "DEBUG:blocker:封禁条件满足: 27017 => {'gte': 27017}",
+                "DEBUG:blocker:封禁条件满足: 9527 => {'lt': 19198}",
+                "DEBUG:blocker:封禁条件满足: 19810 => {'lte': 19810}",
+            ])
 
     def test_blocker_empty(self):
         from blocker import Blocker
@@ -64,6 +77,7 @@ class LimiterTest(unittest.TestCase):
         self.assertFalse(b.doFilter({'clientName': 'Transmission 4.0.4'}))
         self.assertFalse(b.doFilter({'clientName': 'bitTorrent 7.10.5'}))
         self.assertFalse(b.doFilter({'clientName': 'μTorrent 2.2.1'}))
+        self.assertFalse(b.doFilter({'clientName': 'LibreTorrent 3.5.0'}))
         self.assertFalse(b.doFilter({'clientName': 'BoringCat Torrent Dev'}))
         self.assertFalse(b.doFilter({'port': 11451}))
         self.assertFalse(b.doFilter({'port': 65535}))
