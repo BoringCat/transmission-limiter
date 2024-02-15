@@ -126,7 +126,7 @@ def createApp(configFile:str = args.CONFIG_FILE, debug:bool = False):
     with open(configFile, 'r', encoding='UTF-8') as f:
         conf = yaml.safe_load(f)
 
-    rds = redis.Redis(**conf['redis'], encoding='UTF-8', decode_responses=True)
+    rds = redis.Redis(connection_pool=redis.ConnectionPool(**conf['redis'], encoding='UTF-8', decode_responses=True))
     tr = Transmission(**conf['transmission'])
 
     blocker = Blocker(conf.get('staticBlock', None))
