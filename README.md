@@ -48,7 +48,7 @@ threshold:
 staticBlock:     # 静态规则列表
   ip:
   - ${startIP}-${endIP}
-  ${key}:         # 静态匹配列表
+  ${key}:        # 静态匹配列表
   - prefix:   ${value}
   - suffix:   ${value}
   - contains: ${value}

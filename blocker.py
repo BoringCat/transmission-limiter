@@ -2,7 +2,11 @@ import logging
 
 class Blocker():
     @property
-    def iplist(self): yield from self.__iplist
+    def iplist(self):
+        for ip in self.__iplist:
+            if '-' not in ip:
+                yield f'{ip}-{ip}'
+            yield ip
     @staticmethod
     def doRuleFilter(rule:dict[str, str | int | float | bool], data:str | int | float | bool):
         result = True

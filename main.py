@@ -150,7 +150,7 @@ def createApp(configFile:str = args.CONFIG_FILE, debug:bool = False):
             for idx, ip in enumerate(v.split('\n')):
                 dymanic_list.append(f'dymanic-{runId}-{idx}:{ip}-{ip}')
         return '\n'.join(itertools.chain(
-            map(lambda x:'static-{0:08d}:{1}-{1}'.format(*x), enumerate(blocker.iplist)),
+            map(lambda x:'static-{0:08d}:{1}'.format(*x), enumerate(blocker.iplist)),
             dymanic_list
         )) + '\n'
 
